@@ -16,6 +16,6 @@ public class OpenApiConfig {
                 .info(new Info()
                         .title("공지사항 API")
                         .description("사전과제")
-                        .version("v1.0.0")));
+                        .version("v1.0.0"));
     }
 } 

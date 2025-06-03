@@ -15,8 +15,10 @@ import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.test.web.servlet.MockMvc;
 import pre.assignment.rsupport.domain.Notice;
 import pre.assignment.rsupport.dto.NoticeDetailResponseDto;
+import pre.assignment.rsupport.dto.NoticeListResponseDto;
 import pre.assignment.rsupport.dto.NoticeRequestDto;
 import pre.assignment.rsupport.service.NoticeService;
+import pre.assignment.rsupport.service.FileService;
 
 import java.time.LocalDateTime;
 import java.util.Collections;
@@ -36,6 +38,9 @@ class NoticeControllerTest {
 
     @MockBean
     private NoticeService noticeService;
+
+    @MockBean
+    private FileService fileService;
 
     @Autowired
     private ObjectMapper objectMapper;
@@ -65,7 +70,7 @@ class NoticeControllerTest {
     }
 
     @Test
-    void createNotice_성공() throws Exception {
+    void createNotice() throws Exception {
         when(noticeService.createNotice(any(Notice.class), any())).thenReturn(notice);
 
         String noticeJson = objectMapper.writeValueAsString(noticeRequestDto);
@@ -85,7 +90,7 @@ class NoticeControllerTest {
     }
 
     @Test
-    void updateNotice_성공() throws Exception {
+    void updateNotice() throws Exception {
         when(noticeService.updateNotice(eq(1L), any(Notice.class), any())).thenReturn(notice);
 
         String noticeJson = objectMapper.writeValueAsString(noticeRequestDto);
@@ -98,39 +103,53 @@ class NoticeControllerTest {
 
         mockMvc.perform(multipart("/api/notices/1")
                         .file(noticePart)
-                        .contentType(MediaType.MULTIPART_FORM_DATA)
                         .with(request -> {
                             request.setMethod("PUT");
                             return request;
-                        }))
+                        })
+                        .contentType(MediaType.MULTIPART_FORM_DATA))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.id").value(1))
                 .andExpect(jsonPath("$.title").value("테스트 공지사항"));
     }
 
     @Test
-    void deleteNotice_성공() throws Exception {
+    void deleteNotice() throws Exception {
         mockMvc.perform(delete("/api/notices/1"))
                 .andExpect(status().isOk());
     }
 
     @Test
-    void getNotice_성공() throws Exception {
+    void getNoticeDetail() throws Exception {
         when(noticeService.getNotice(1L)).thenReturn(notice);
 
         mockMvc.perform(get("/api/notices/1"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.id").value(1))
-                .andExpect(jsonPath("$.title").value("테스트 공지사항"));
+                .andExpect(jsonPath("$.title").value("테스트 공지사항"))
+                .andExpect(jsonPath("$.content").value("테스트 내용"));
     }
 
     @Test
-    void searchNotices_성공() throws Exception {
+    void getNoticeList() throws Exception {
+        Page<Notice> noticePage = new PageImpl<>(Collections.singletonList(notice));
+        when(noticeService.getNoticeList(any(Pageable.class))).thenReturn(noticePage);
+
+        mockMvc.perform(get("/api/notices")
+                        .param("page", "0")
+                        .param("size", "10"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.content[0].id").value(1))
+                .andExpect(jsonPath("$.content[0].title").value("테스트 공지사항"));
+    }
+
+    @Test
+    void searchNotices() throws Exception {
         Page<Notice> noticePage = new PageImpl<>(Collections.singletonList(notice));
         when(noticeService.searchNotices(any(), any(), any(Pageable.class))).thenReturn(noticePage);
 
-        mockMvc.perform(get("/api/notices")
-                        .param("searchType", "title")
+        mockMvc.perform(get("/api/notices/search")
+                        .param("field", "title")
                         .param("keyword", "테스트")
                         .param("page", "0")
                         .param("size", "10"))
@@ -140,19 +159,15 @@ class NoticeControllerTest {
     }
 
     @Test
-    void searchNoticesWithDate_성공() throws Exception {
+    void searchNoticesWithDate() throws Exception {
         Page<Notice> noticePage = new PageImpl<>(Collections.singletonList(notice));
         when(noticeService.searchNoticesWithDate(any(), any(), any(), any(), any(Pageable.class))).thenReturn(noticePage);
 
-        LocalDateTime now = LocalDateTime.now();
-        String startDate = now.toString();
-        String endDate = now.plusDays(7).toString();
-
-        mockMvc.perform(get("/api/notices")
-                        .param("searchType", "title")
+        mockMvc.perform(get("/api/notices/search/date")
+                        .param("field", "title")
                         .param("keyword", "테스트")
-                        .param("startDate", startDate)
-                        .param("endDate", endDate)
+                        .param("startDate", "2024-03-20 00:00:00")
+                        .param("endDate", "2024-03-21 23:59:59")
                         .param("page", "0")
                         .param("size", "10"))
                 .andExpect(status().isOk())

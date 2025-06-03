@@ -17,9 +17,13 @@ import org.springframework.web.multipart.MultipartFile;
 import pre.assignment.rsupport.domain.Notice;
 import pre.assignment.rsupport.dto.NoticeRequestDto;
 import pre.assignment.rsupport.dto.NoticeResponseDto;
+import pre.assignment.rsupport.dto.NoticeListResponseDto;
+import pre.assignment.rsupport.dto.NoticeDetailResponseDto;
 import pre.assignment.rsupport.service.NoticeService;
 
 import java.io.IOException;
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
 import java.util.List;
 
 @Tag(name = "공지사항", description = "공지사항 관리 API")
@@ -71,17 +75,28 @@ public class NoticeController {
         return ResponseEntity.ok().build();
     }
 
-    @Operation(summary = "공지사항 조회", description = "ID로 공지사항을 조회합니다.")
+    @Operation(summary = "공지사항 목록 조회", description = "공지사항 목록을 조회합니다.")
     @ApiResponses(value = {
-            @ApiResponse(responseCode = "200", description = "공지사항 조회 성공",
-                    content = @Content(schema = @Schema(implementation = NoticeResponseDto.class))),
+            @ApiResponse(responseCode = "200", description = "조회 성공",
+                    content = @Content(schema = @Schema(implementation = Page.class)))
+    })
+    @GetMapping
+    public ResponseEntity<Page<NoticeListResponseDto>> getNoticeList(Pageable pageable) {
+        Page<Notice> notices = noticeService.getNoticeList(pageable);
+        return ResponseEntity.ok(notices.map(NoticeListResponseDto::from));
+    }
+
+    @Operation(summary = "공지사항 상세 조회", description = "ID로 공지사항을 상세 조회합니다.")
+    @ApiResponses(value = {
+            @ApiResponse(responseCode = "200", description = "조회 성공",
+                    content = @Content(schema = @Schema(implementation = NoticeDetailResponseDto.class))),
             @ApiResponse(responseCode = "404", description = "공지사항을 찾을 수 없음")
     })
     @GetMapping("/{id}")
-    public ResponseEntity<NoticeResponseDto> getNotice(
+    public ResponseEntity<NoticeDetailResponseDto> getNoticeDetail(
             @Parameter(description = "공지사항 ID") @PathVariable Long id) {
         Notice notice = noticeService.getNotice(id);
-        return ResponseEntity.ok(NoticeResponseDto.from(notice));
+        return ResponseEntity.ok(NoticeDetailResponseDto.from(notice));
     }
 
     @Operation(summary = "공지사항 검색", description = "제목과 내용으로 공지사항을 검색합니다.")
@@ -90,12 +105,12 @@ public class NoticeController {
                     content = @Content(schema = @Schema(implementation = Page.class)))
     })
     @GetMapping("/search")
-    public ResponseEntity<Page<NoticeResponseDto>> searchNotices(
+    public ResponseEntity<Page<NoticeListResponseDto>> searchNotices(
             @Parameter(description = "검색 필드 (title, content)") @RequestParam String field,
             @Parameter(description = "검색어") @RequestParam String keyword,
             @Parameter(description = "페이지 정보") Pageable pageable) {
         Page<Notice> notices = noticeService.searchNotices(field, keyword, pageable);
-        return ResponseEntity.ok(notices.map(NoticeResponseDto::from));
+        return ResponseEntity.ok(notices.map(NoticeListResponseDto::from));
     }
 
     @Operation(summary = "기간별 공지사항 검색", description = "제목, 내용, 기간으로 공지사항을 검색합니다.")
@@ -104,13 +119,15 @@ public class NoticeController {
                     content = @Content(schema = @Schema(implementation = Page.class)))
     })
     @GetMapping("/search/date")
-    public ResponseEntity<Page<NoticeResponseDto>> searchNoticesWithDate(
+    public ResponseEntity<Page<NoticeListResponseDto>> searchNoticesWithDate(
             @Parameter(description = "검색 필드 (title, content)") @RequestParam String field,
             @Parameter(description = "검색어") @RequestParam String keyword,
-            @Parameter(description = "시작일") @RequestParam String startDate,
-            @Parameter(description = "종료일") @RequestParam String endDate,
+            @Parameter(description = "시작일 (yyyy-MM-dd HH:mm:ss)") @RequestParam String startDate,
+            @Parameter(description = "종료일 (yyyy-MM-dd HH:mm:ss)") @RequestParam String endDate,
             @Parameter(description = "페이지 정보") Pageable pageable) {
-        Page<Notice> notices = noticeService.searchNoticesWithDate(field, keyword, startDate, endDate, pageable);
-        return ResponseEntity.ok(notices.map(NoticeResponseDto::from));
+        LocalDateTime startDateTime = LocalDateTime.parse(startDate, DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"));
+        LocalDateTime endDateTime = LocalDateTime.parse(endDate, DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"));
+        Page<Notice> notices = noticeService.searchNoticesWithDate(field, keyword, startDateTime, endDateTime, pageable);
+        return ResponseEntity.ok(notices.map(NoticeListResponseDto::from));
     }
 }

@@ -25,6 +25,9 @@ dependencies {
 	implementation("org.springframework.boot:spring-boot-starter-cache")
 	implementation("org.springframework.boot:spring-boot-starter-data-redis")
 	
+	// OpenAPI (Swagger)
+	implementation("org.springdoc:springdoc-openapi-starter-webmvc-ui:2.3.0")
+	
 	// Hibernate
 	implementation("org.hibernate:hibernate-core:6.4.1.Final")
 	

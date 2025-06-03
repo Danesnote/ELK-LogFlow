@@ -1,14 +1,13 @@
 package pre.assignment.rsupport.dto;
 
+import lombok.Builder;
 import lombok.Getter;
-import lombok.NoArgsConstructor;
-import lombok.Setter;
 import pre.assignment.rsupport.domain.Notice;
+
 import java.time.LocalDateTime;
 
 @Getter
-@Setter
-@NoArgsConstructor
+@Builder
 public class NoticeListResponseDto {
     private Long id;
     private String title;
@@ -17,12 +16,14 @@ public class NoticeListResponseDto {
     private Integer viewCount;
     private String author;
 
-    public NoticeListResponseDto(Notice notice) {
-        this.id = notice.getId();
-        this.title = notice.getTitle();
-        this.hasAttachment = !notice.getAttachments().isEmpty();
-        this.createdAt = notice.getCreatedAt();
-        this.viewCount = notice.getViewCount();
-        this.author = notice.getAuthor();
+    public static NoticeListResponseDto from(Notice notice) {
+        return NoticeListResponseDto.builder()
+                .id(notice.getId())
+                .title(notice.getTitle())
+                .hasAttachment(!notice.getAttachments().isEmpty())
+                .createdAt(notice.getCreatedAt())
+                .viewCount(notice.getViewCount())
+                .author(notice.getAuthor())
+                .build();
     }
 } 

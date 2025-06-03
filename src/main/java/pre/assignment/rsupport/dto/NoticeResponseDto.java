@@ -19,6 +19,8 @@ public class NoticeResponseDto {
     private LocalDateTime endDateTime;
     private String author;
     private Integer viewCount;
+    private LocalDateTime createdAt;
+    private LocalDateTime updatedAt;
     private List<AttachmentDto> attachments;
 
     @Getter
@@ -41,6 +43,8 @@ public class NoticeResponseDto {
                 .endDateTime(notice.getEndDateTime())
                 .author(notice.getAuthor())
                 .viewCount(notice.getViewCount())
+                .createdAt(notice.getCreatedAt())
+                .updatedAt(notice.getUpdatedAt())
                 .attachments(notice.getAttachments().stream()
                         .map(attachment -> AttachmentDto.builder()
                                 .id(attachment.getId())
@@ -48,9 +52,8 @@ public class NoticeResponseDto {
                                 .storedFilename(attachment.getStoredFilename())
                                 .filePath(attachment.getFilePath())
                                 .fileSize(attachment.getFileSize())
-                                .contentType(attachment.getContentType())
                                 .build())
-                        .collect(Collectors.toList()))
+                        .toList())
                 .build();
     }
 } 

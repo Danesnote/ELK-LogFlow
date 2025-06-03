@@ -88,9 +88,9 @@ class NoticeServiceTest {
         assertThat(result).isNotNull();
         assertThat(result.getId()).isEqualTo(1L);
         assertThat(result.getTitle()).isEqualTo("테스트 공지사항");
-        verify(noticeRepository, times(1)).findById(1L);
-        verify(noticeRepository, times(1)).save(any(Notice.class));
-        verify(fileService, times(1)).saveFiles(any(), any());
+        verify(noticeRepository).findById(1L);
+        verify(noticeRepository).save(any(Notice.class));
+        verify(fileService).saveFiles(any(), any());
     }
 
     @Test
@@ -120,6 +120,19 @@ class NoticeServiceTest {
     }
 
     @Test
+    void getNoticeList() {
+        Page<Notice> noticePage = new PageImpl<>(Collections.singletonList(notice));
+        when(noticeRepository.findAll(any(Pageable.class))).thenReturn(noticePage);
+
+        Page<Notice> result = noticeService.getNoticeList(PageRequest.of(0, 10));
+
+        assertThat(result).isNotNull();
+        assertThat(result.getContent()).hasSize(1);
+        assertThat(result.getContent().get(0).getTitle()).isEqualTo("테스트 공지사항");
+        verify(noticeRepository).findAll(any(Pageable.class));
+    }
+
+    @Test
     void searchNotices() {
         Page<Notice> noticePage = new PageImpl<>(Collections.singletonList(notice));
         when(noticeRepository.searchNotices(any(), any(), any(Pageable.class))).thenReturn(noticePage);
@@ -135,10 +148,11 @@ class NoticeServiceTest {
     @Test
     void searchNoticesWithDate() {
         Page<Notice> noticePage = new PageImpl<>(Collections.singletonList(notice));
+        when(noticeRepository.searchNoticesWithDate(any(), any(), any(), any(), any(Pageable.class)))
+                .thenReturn(noticePage);
+
         LocalDateTime startDate = LocalDateTime.now();
         LocalDateTime endDate = LocalDateTime.now().plusDays(7);
-        when(noticeRepository.searchNoticesWithDate(any(), any(), any(), any(), any(Pageable.class))).thenReturn(noticePage);
-
         Page<Notice> result = noticeService.searchNoticesWithDate("title", "테스트", startDate, endDate, PageRequest.of(0, 10));
 
         assertThat(result).isNotNull();

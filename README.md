@@ -35,5 +35,14 @@ RESTful API 기반의 공지사항 관리 시스템입니다.
    - 비동기 파일 처리
 
 4. **데이터베이스 최적화**
-   - 적절한 인덱스 설계
    - N+1 문제 해결을 위한 Fetch Join 사용
+
+## api 명세
+   - http://localhost:8080/swagger-ui/index.html
+     - http://localhost:8080/api-docs
+
+## 추후 개선전략
+
+1. ElasticSearch 도입
+   - 검색 성능 향상 (like 검색의 한계 / 속도적 향상)
+2. DB 인덱스 생성

@@ -40,6 +40,9 @@ public class Notice {
     private LocalDateTime createdAt;
 
     @Column(nullable = false)
+    private LocalDateTime updatedAt;
+
+    @Column(nullable = false)
     @Builder.Default
     private Integer viewCount = 0;
 
@@ -50,6 +53,12 @@ public class Notice {
     @PrePersist
     protected void onCreate() {
         createdAt = LocalDateTime.now();
+        updatedAt = LocalDateTime.now();
+    }
+
+    @PreUpdate
+    protected void onUpdate() {
+        updatedAt = LocalDateTime.now();
     }
 
     public void addFile(Attachment file) {

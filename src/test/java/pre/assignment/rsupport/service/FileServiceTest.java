@@ -7,12 +7,15 @@ import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.mock.web.MockMultipartFile;
+import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.web.multipart.MultipartFile;
 import pre.assignment.rsupport.domain.Attachment;
 import pre.assignment.rsupport.domain.Notice;
 import pre.assignment.rsupport.repository.AttachmentRepository;
 
 import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.time.LocalDateTime;
 import java.util.Collections;
 import java.util.List;
@@ -35,56 +38,68 @@ class FileServiceTest {
     private NoticeService noticeService;
 
     private Notice notice;
-    private MultipartFile file;
-    private Attachment attachment;
+    private List<MultipartFile> files;
 
     @BeforeEach
     void setUp() {
-        file = new MockMultipartFile(
-                "file",
-                "test.pdf",
-                "application/pdf",
-                "test content".getBytes()
-        );
-
-        attachment = Attachment.builder()
-                .id(1L)
-                .originalFilename("test.pdf")
-                .storedFilename("stored_test.pdf")
-                .filePath("/uploads/stored_test.pdf")
-                .fileSize(1024L)
-                .build();
-
         notice = Notice.builder()
                 .id(1L)
                 .title("테스트 공지사항")
                 .content("테스트 내용")
-                .startDateTime(LocalDateTime.now())
-                .endDateTime(LocalDateTime.now().plusDays(7))
                 .author("테스트 작성자")
-                .viewCount(0)
                 .build();
+
+        files = List.of(
+                new MockMultipartFile(
+                        "file",
+                        "test.pdf",
+                        "application/pdf",
+                        "test content".getBytes()
+                )
+        );
+
+        // uploadDir 설정
+        ReflectionTestUtils.setField(fileService, "uploadDir", "./test-uploads");
     }
 
     @Test
     void saveFiles() throws IOException {
-        when(attachmentRepository.save(any(Attachment.class))).thenReturn(attachment);
+        // given
+        Path uploadPath = Path.of("./test-uploads");
+        if (!Files.exists(uploadPath)) {
+            Files.createDirectories(uploadPath);
+        }
 
-        List<Attachment> result = fileService.saveFiles(Collections.singletonList(file), notice);
+        // when
+        List<Attachment> attachments = fileService.saveFiles(files, notice);
 
-        assertThat(result).isNotNull();
-        assertThat(result).hasSize(1);
-        assertThat(result.get(0).getOriginalFilename()).isEqualTo("test.pdf");
-        verify(attachmentRepository, times(1)).save(any(Attachment.class));
+        // then
+        assertThat(attachments).isNotNull();
+        assertThat(attachments).hasSize(1);
+        assertThat(attachments.get(0).getOriginalFilename()).isEqualTo("test.pdf");
+        assertThat(attachments.get(0).getNotice()).isEqualTo(notice);
+
+        // cleanup
+        Files.walk(uploadPath)
+                .map(Path::toFile)
+                .forEach(file -> file.delete());
+        Files.deleteIfExists(uploadPath);
     }
 
     @Test
-    void deleteFiles() {
-        doNothing().when(attachmentRepository).delete(any(Attachment.class));
+    void deleteFiles() throws IOException {
+        // given
+        Path uploadPath = Path.of("./test-uploads");
+        if (!Files.exists(uploadPath)) {
+            Files.createDirectories(uploadPath);
+        }
 
-        fileService.deleteFiles(Collections.singletonList(attachment));
+        List<Attachment> attachments = fileService.saveFiles(files, notice);
 
-        verify(attachmentRepository, times(1)).delete(any(Attachment.class));
+        // when
+        fileService.deleteFiles(attachments);
+
+        // then
+        assertThat(Files.exists(uploadPath)).isFalse();
     }
-
 }

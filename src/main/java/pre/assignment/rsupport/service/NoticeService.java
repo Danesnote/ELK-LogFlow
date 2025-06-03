@@ -92,4 +92,9 @@ public class NoticeService {
     ) {
         return noticeRepository.searchNoticesWithDate(searchType, keyword, startDate, endDate, pageable);
     }
+
+    @Transactional(readOnly = true)
+    public Page<Notice> getNoticeList(Pageable pageable) {
+        return noticeRepository.findAll(pageable);
+    }
 } 
