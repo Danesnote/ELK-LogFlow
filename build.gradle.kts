@@ -24,6 +24,10 @@ dependencies {
 	implementation("org.springframework.boot:spring-boot-starter-validation")
 	implementation("org.springframework.boot:spring-boot-starter-cache")
 	implementation("org.springframework.boot:spring-boot-starter-data-redis")
+
+	//250903
+	implementation("org.springframework.boot:spring-boot-starter-data-elasticsearch")
+	implementation("net.logstash.logback:logstash-logback-encoder:7.4")
 	
 	// OpenAPI (Swagger)
 	implementation("org.springdoc:springdoc-openapi-starter-webmvc-ui:2.3.0")

@@ -1,0 +1,19 @@
+filebeat.inputs:
+  - type: log
+    enabled: true
+    paths:
+      - /logs/*.log  # Spring Boot 로그 경로
+
+output.elasticsearch:  # Kafka 대신 Elasticsearch로 바로 보내는 예시
+  hosts: ["elasticsearch:9200"]
+
+# Kafka로 보내고 싶다면
+#output.kafka:
+#  hosts: ["kafka:29092"]
+#  topic: "logs-topic"
+#
+#
+
+
+setup.kibana:
+  host: "kibana:5601"
