@@ -1,19 +1,29 @@
 filebeat.inputs:
-  - type: log
-    enabled: true
+  # 8.x 에서 deprecated 된 log 입력 대신 filestream 사용
+  - type: filestream
+    id: logflow-app
     paths:
-      - /logs/*.log  # Spring Boot 로그 경로
+      - /logs/*.log  # Spring Boot JSON 로그 경로 (롤링된 *.gz 는 제외됨)
+    parsers:
+      # logback LogstashEncoder 가 남긴 한 줄짜리 JSON 을 필드로 펼침
+      - ndjson:
+          target: ""            # 최상위 필드로 (level, logger_name, stack_trace ...)
+          overwrite_keys: true  # 로그의 @timestamp, message 로 덮어씀
+          add_error_key: true   # 파싱 실패 시 error.message 필드 추가
+          message_key: message
+
+processors:
+  - drop_fields:
+      fields: ["agent.ephemeral_id", "agent.id", "ecs.version"]
+      ignore_missing: true
 
 output.elasticsearch:  # Kafka 대신 Elasticsearch로 바로 보내는 예시
   hosts: ["elasticsearch:9200"]
 
-# Kafka로 보내고 싶다면
+# Kafka로 보내고 싶다면 (docker compose --profile kafka up 으로 kafka 를 함께 띄울 것)
 #output.kafka:
 #  hosts: ["kafka:29092"]
 #  topic: "logs-topic"
-#
-#
-
 
 setup.kibana:
   host: "kibana:5601"
