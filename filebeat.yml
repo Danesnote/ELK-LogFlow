@@ -17,13 +17,9 @@ processors:
       fields: ["agent.ephemeral_id", "agent.id", "ecs.version"]
       ignore_missing: true
 
-output.elasticsearch:  # Kafka 대신 Elasticsearch로 바로 보내는 예시
-  hosts: ["elasticsearch:9200"]
-
-# Kafka로 보내고 싶다면 (docker compose --profile kafka up 으로 kafka 를 함께 띄울 것)
-#output.kafka:
-#  hosts: ["kafka:29092"]
-#  topic: "logs-topic"
-
-setup.kibana:
-  host: "kibana:5601"
+# Kafka 로 보내고 Logstash 가 소비해서 Elasticsearch 에 적재 (logstash/pipeline/logstash.conf)
+output.kafka:
+  hosts: ["kafka:29092"]
+  topic: "logs-topic"
+  required_acks: 1     # 리더 기록 확인 후 전송 완료 처리
+  compression: gzip
