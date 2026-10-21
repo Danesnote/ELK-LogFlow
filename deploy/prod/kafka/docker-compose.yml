@@ -1,0 +1,129 @@
+# Kafka 클러스터: 브로커 3대, KRaft(ZooKeeper 없음), SASL_SSL(PLAIN) 인증 + ACL 인가
+#
+# 실제 운영에서는 브로커마다 서버를 따로 두고 해당 서비스만 띄운다 (예: 서버1 에서 `up -d kafka1`).
+# 이 파일은 세 브로커의 설정을 한곳에서 보여 주기 위한 기준 구성이다.
+#
+# 실행: docker compose --env-file deploy/prod/.env -f deploy/prod/kafka/docker-compose.yml up -d
+# 사전 준비: deploy/prod/scripts/gen-secrets.sh  (인증서·SASL 계정 파일 생성)
+#
+# 리스너
+#   INTERNAL   :29092  브로커 간 복제 (SASL_SSL)
+#   CONTROLLER :29093  KRaft 컨트롤러 쿼럼 (SASL_SSL)
+#   EXTERNAL   :9093~  Filebeat·Logstash 접속용 (SASL_SSL)
+
+x-kafka-env: &kafka-env
+  CLUSTER_ID: ${KAFKA_CLUSTER_ID:?KAFKA_CLUSTER_ID 필요}
+  KAFKA_PROCESS_ROLES: broker,controller
+  KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka1:29093,2@kafka2:29093,3@kafka3:29093
+  KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+  KAFKA_INTER_BROKER_LISTENER_NAME: INTERNAL
+  KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: INTERNAL:SASL_SSL,CONTROLLER:SASL_SSL,EXTERNAL:SASL_SSL
+
+  # --- 인증: SASL/PLAIN (계정은 kafka_server_jaas.conf) ---
+  KAFKA_OPTS: -Djava.security.auth.login.config=/etc/kafka/secrets/kafka_server_jaas.conf
+  KAFKA_SASL_ENABLED_MECHANISMS: PLAIN
+  KAFKA_SASL_MECHANISM_INTER_BROKER_PROTOCOL: PLAIN
+  KAFKA_SASL_MECHANISM_CONTROLLER_PROTOCOL: PLAIN
+
+  # --- 전송 암호화: TLS (파일은 /etc/kafka/secrets 기준 이름) ---
+  KAFKA_SSL_KEYSTORE_TYPE: PKCS12
+  KAFKA_SSL_KEYSTORE_CREDENTIALS: keystore_creds
+  KAFKA_SSL_KEY_CREDENTIALS: key_creds
+  KAFKA_SSL_TRUSTSTORE_FILENAME: truststore.p12
+  KAFKA_SSL_TRUSTSTORE_TYPE: PKCS12
+  KAFKA_SSL_TRUSTSTORE_CREDENTIALS: truststore_creds
+  KAFKA_SSL_ENDPOINT_IDENTIFICATION_ALGORITHM: https
+
+  # --- 인가: ACL 없으면 거부. 브로커 자신(admin)만 슈퍼유저 ---
+  KAFKA_AUTHORIZER_CLASS_NAME: org.apache.kafka.metadata.authorizer.StandardAuthorizer
+  KAFKA_SUPER_USERS: User:admin
+  KAFKA_ALLOW_EVERYONE_IF_NO_ACL_FOUND: "false"
+
+  # --- 가용성: 3복제, 최소 2개 동기화 → 브로커 1대가 죽어도 쓰기·읽기 유지 ---
+  KAFKA_DEFAULT_REPLICATION_FACTOR: 3
+  KAFKA_MIN_INSYNC_REPLICAS: 2
+  KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 3
+  KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 3
+  KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 2
+  KAFKA_UNCLEAN_LEADER_ELECTION_ENABLE: "false"
+  KAFKA_AUTO_CREATE_TOPICS_ENABLE: "false"  # 토픽은 kafka-init 이 명시적으로 생성
+
+  # --- 보존: ES 장애가 길어져도 3일치는 Kafka 에 남아 있음 ---
+  KAFKA_LOG_RETENTION_HOURS: 72
+  KAFKA_HEAP_OPTS: -Xms2g -Xmx2g
+
+x-kafka-common: &kafka-common
+  image: confluentinc/cp-kafka:7.6.1
+  restart: unless-stopped
+  healthcheck:
+    test: ["CMD-SHELL", "kafka-broker-api-versions --bootstrap-server $$HOSTNAME:29092 --command-config /etc/kafka/secrets/client-admin.properties > /dev/null 2>&1"]
+    interval: 15s
+    timeout: 15s
+    retries: 30
+    start_period: 30s
+
+services:
+  kafka1:
+    <<: *kafka-common
+    hostname: kafka1
+    ports:
+      - "${BIND_IP:?BIND_IP 필요}:9093:9093"
+    environment:
+      <<: *kafka-env
+      KAFKA_NODE_ID: 1
+      KAFKA_LISTENERS: INTERNAL://0.0.0.0:29092,CONTROLLER://0.0.0.0:29093,EXTERNAL://0.0.0.0:9093
+      KAFKA_ADVERTISED_LISTENERS: INTERNAL://kafka1:29092,EXTERNAL://${KAFKA1_EXTERNAL_HOST}:9093
+      KAFKA_SSL_KEYSTORE_FILENAME: kafka1.keystore.p12
+    volumes:
+      - ../secrets/kafka:/etc/kafka/secrets:ro
+      - kafka1data:/var/lib/kafka/data
+
+  kafka2:
+    <<: *kafka-common
+    hostname: kafka2
+    ports:
+      - "${BIND_IP}:9094:9094"
+    environment:
+      <<: *kafka-env
+      KAFKA_NODE_ID: 2
+      KAFKA_LISTENERS: INTERNAL://0.0.0.0:29092,CONTROLLER://0.0.0.0:29093,EXTERNAL://0.0.0.0:9094
+      KAFKA_ADVERTISED_LISTENERS: INTERNAL://kafka2:29092,EXTERNAL://${KAFKA2_EXTERNAL_HOST}:9094
+      KAFKA_SSL_KEYSTORE_FILENAME: kafka2.keystore.p12
+    volumes:
+      - ../secrets/kafka:/etc/kafka/secrets:ro
+      - kafka2data:/var/lib/kafka/data
+
+  kafka3:
+    <<: *kafka-common
+    hostname: kafka3
+    ports:
+      - "${BIND_IP}:9095:9095"
+    environment:
+      <<: *kafka-env
+      KAFKA_NODE_ID: 3
+      KAFKA_LISTENERS: INTERNAL://0.0.0.0:29092,CONTROLLER://0.0.0.0:29093,EXTERNAL://0.0.0.0:9095
+      KAFKA_ADVERTISED_LISTENERS: INTERNAL://kafka3:29092,EXTERNAL://${KAFKA3_EXTERNAL_HOST}:9095
+      KAFKA_SSL_KEYSTORE_FILENAME: kafka3.keystore.p12
+    volumes:
+      - ../secrets/kafka:/etc/kafka/secrets:ro
+      - kafka3data:/var/lib/kafka/data
+
+  # logs-topic 생성 + 계정별 ACL 부여 후 종료 (여러 번 실행해도 안전)
+  kafka-init:
+    image: confluentinc/cp-kafka:7.6.1
+    restart: "no"
+    depends_on:
+      kafka1: { condition: service_healthy }
+      kafka2: { condition: service_healthy }
+      kafka3: { condition: service_healthy }
+    environment:
+      BOOTSTRAP: kafka1:29092,kafka2:29092,kafka3:29092
+    volumes:
+      - ../secrets/kafka:/etc/kafka/secrets:ro
+      - ./init-topics.sh:/init-topics.sh:ro
+    entrypoint: ["bash", "/init-topics.sh"]
+
+volumes:
+  kafka1data:
+  kafka2data:
+  kafka3data:

@@ -38,3 +38,7 @@ out/
 
 ### logs ###
 logs/
+
+### 운영 비밀값 (deploy/prod/scripts/gen-secrets.sh 결과물, 실제 .env) ###
+deploy/prod/.env
+deploy/prod/secrets/

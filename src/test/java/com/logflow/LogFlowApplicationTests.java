@@ -1,4 +1,4 @@
-package pre.assignment.rsupport;
+package com.logflow;
 
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.test.context.SpringBootTest;

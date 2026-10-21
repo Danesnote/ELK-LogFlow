@@ -8,5 +8,8 @@ server:
 logging:
   file:
     name: logs/app.log
+  pattern:
+    # 콘솔(텍스트) 로그에도 traceId 표시. JSON 파일 로그는 MDC 가 필드로 자동 포함됨
+    correlation: "[%X{traceId:-}] "
   level:
     root: INFO

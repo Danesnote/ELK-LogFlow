@@ -1,0 +1,196 @@
+# Elastic Stack 운영 구성: ES 3노드(보안·TLS) + Kibana(HTTPS) + Logstash 다중 인스턴스
+#
+# 실제 운영에서는 ES 노드마다 서버를 따로 두는 것이 원칙이다. 이 파일은 노드 간 설정을 한곳에 보여 주는 기준 구성.
+#
+# 실행: docker compose --env-file deploy/prod/.env -f deploy/prod/elk/docker-compose.yml up -d
+# 사전 준비: Kafka 클러스터 기동, deploy/prod/scripts/gen-secrets.sh (Logstash 가 쓸 Kafka 트러스트스토어)
+# 호스트 설정(리눅스): sysctl -w vm.max_map_count=262144
+
+x-es-env: &es-env
+  cluster.name: ${ES_CLUSTER_NAME:-logflow-prod}
+  cluster.initial_master_nodes: es01,es02,es03
+  bootstrap.memory_lock: "true"
+  ES_JAVA_OPTS: -Xms${ES_JAVA_HEAP:-2g} -Xmx${ES_JAVA_HEAP:-2g}
+  xpack.license.self_generated.type: basic
+  # 인증 + HTTP(클라이언트)·transport(노드 간) 양쪽 TLS
+  xpack.security.enabled: "true"
+  xpack.security.http.ssl.enabled: "true"
+  xpack.security.http.ssl.certificate_authorities: certs/ca/ca.crt
+  xpack.security.transport.ssl.enabled: "true"
+  xpack.security.transport.ssl.certificate_authorities: certs/ca/ca.crt
+  xpack.security.transport.ssl.verification_mode: certificate
+
+x-es-common: &es-common
+  image: docker.elastic.co/elasticsearch/elasticsearch:${STACK_VERSION:-8.10.0}
+  restart: unless-stopped
+  depends_on:
+    setup:
+      condition: service_healthy  # 인증서 발급이 끝난 뒤 기동
+  mem_limit: ${ES_MEM_LIMIT:-4g}
+  ulimits:
+    memlock: { soft: -1, hard: -1 }
+    nofile: { soft: 65536, hard: 65536 }
+  healthcheck:
+    # 인증 없이 호출하면 401 이 와야 정상 (TLS 로 응답 중이라는 뜻)
+    test: ["CMD-SHELL", "curl -s --cacert config/certs/ca/ca.crt https://localhost:9200 | grep -q 'missing authentication credentials'"]
+    interval: 10s
+    timeout: 10s
+    retries: 60
+
+services:
+  # 인증서 발급 → (ES 기동 대기) → 계정·역할·ILM·템플릿 등록 후 종료
+  setup:
+    image: docker.elastic.co/elasticsearch/elasticsearch:${STACK_VERSION:-8.10.0}
+    user: "0"
+    restart: "no"
+    environment:
+      ELASTIC_PASSWORD: ${ELASTIC_PASSWORD:?ELASTIC_PASSWORD 필요}
+      KIBANA_PASSWORD: ${KIBANA_PASSWORD:?KIBANA_PASSWORD 필요}
+      LOGSTASH_ES_PASSWORD: ${LOGSTASH_ES_PASSWORD:?LOGSTASH_ES_PASSWORD 필요}
+    volumes:
+      - certs:/usr/share/elasticsearch/config/certs
+      - ./setup:/setup:ro
+      - ../../../elasticsearch:/setup-index:ro          # ILM 정책 + 공용 setup.sh
+      - ./elasticsearch:/setup-prod-index:ro            # 운영용 인덱스 템플릿 (샤드 3, 복제본 1)
+    entrypoint: ["bash", "/setup/setup.sh"]
+    healthcheck:
+      test: ["CMD-SHELL", "[ -f config/certs/.ready ]"]
+      interval: 2s
+      timeout: 5s
+      retries: 120
+
+  es01:
+    <<: *es-common
+    hostname: es01
+    ports:
+      - "${BIND_IP:?BIND_IP 필요}:9200:9200"  # 내부망 인터페이스에만 공개
+    environment:
+      <<: *es-env
+      node.name: es01
+      discovery.seed_hosts: es02,es03
+      ELASTIC_PASSWORD: ${ELASTIC_PASSWORD}
+      xpack.security.http.ssl.key: certs/es01/es01.key
+      xpack.security.http.ssl.certificate: certs/es01/es01.crt
+      xpack.security.transport.ssl.key: certs/es01/es01.key
+      xpack.security.transport.ssl.certificate: certs/es01/es01.crt
+    volumes:
+      - certs:/usr/share/elasticsearch/config/certs
+      - es01data:/usr/share/elasticsearch/data
+
+  es02:
+    <<: *es-common
+    hostname: es02
+    environment:
+      <<: *es-env
+      node.name: es02
+      discovery.seed_hosts: es01,es03
+      xpack.security.http.ssl.key: certs/es02/es02.key
+      xpack.security.http.ssl.certificate: certs/es02/es02.crt
+      xpack.security.transport.ssl.key: certs/es02/es02.key
+      xpack.security.transport.ssl.certificate: certs/es02/es02.crt
+    volumes:
+      - certs:/usr/share/elasticsearch/config/certs
+      - es02data:/usr/share/elasticsearch/data
+
+  es03:
+    <<: *es-common
+    hostname: es03
+    environment:
+      <<: *es-env
+      node.name: es03
+      discovery.seed_hosts: es01,es02
+      xpack.security.http.ssl.key: certs/es03/es03.key
+      xpack.security.http.ssl.certificate: certs/es03/es03.crt
+      xpack.security.transport.ssl.key: certs/es03/es03.key
+      xpack.security.transport.ssl.certificate: certs/es03/es03.crt
+    volumes:
+      - certs:/usr/share/elasticsearch/config/certs
+      - es03data:/usr/share/elasticsearch/data
+
+  kibana:
+    image: docker.elastic.co/kibana/kibana:${STACK_VERSION:-8.10.0}
+    restart: unless-stopped
+    depends_on:
+      es01: { condition: service_healthy }
+      es02: { condition: service_healthy }
+      es03: { condition: service_healthy }
+    ports:
+      - "${BIND_IP}:5601:5601"
+    environment:
+      SERVERNAME: kibana
+      # ES 접속: kibana_system 계정 + CA 검증
+      ELASTICSEARCH_HOSTS: '["https://es01:9200","https://es02:9200","https://es03:9200"]'
+      ELASTICSEARCH_USERNAME: kibana_system
+      ELASTICSEARCH_PASSWORD: ${KIBANA_PASSWORD}
+      ELASTICSEARCH_SSL_CERTIFICATEAUTHORITIES: config/certs/ca/ca.crt
+      # 브라우저 ↔ Kibana 도 HTTPS
+      SERVER_SSL_ENABLED: "true"
+      SERVER_SSL_CERTIFICATE: config/certs/kibana/kibana.crt
+      SERVER_SSL_KEY: config/certs/kibana/kibana.key
+      XPACK_SECURITY_ENCRYPTIONKEY: ${KIBANA_ENCRYPTION_KEY:?KIBANA_ENCRYPTION_KEY 필요}
+      XPACK_ENCRYPTEDSAVEDOBJECTS_ENCRYPTIONKEY: ${KIBANA_ENCRYPTION_KEY}
+      XPACK_REPORTING_ENCRYPTIONKEY: ${KIBANA_ENCRYPTION_KEY}
+    volumes:
+      - certs:/usr/share/kibana/config/certs:ro
+      - kibanadata:/usr/share/kibana/data
+    healthcheck:
+      test: ["CMD-SHELL", "curl -s --cacert config/certs/ca/ca.crt https://localhost:5601/api/status | grep -q '\"level\":\"available\"'"]
+      interval: 10s
+      timeout: 10s
+      retries: 60
+
+  # logflow-* 데이터 뷰 생성 후 종료
+  kibana-setup:
+    image: curlimages/curl:8.10.1
+    restart: "no"
+    depends_on:
+      kibana: { condition: service_healthy }
+    volumes:
+      - certs:/certs:ro
+    command:
+      - -sS
+      - --cacert
+      - /certs/ca/ca.crt
+      - -u
+      - elastic:${ELASTIC_PASSWORD}
+      - -X
+      - POST
+      - https://kibana:5601/api/data_views/data_view
+      - -H
+      - "kbn-xsrf: true"
+      - -H
+      - "Content-Type: application/json"
+      - -d
+      - '{"override":true,"data_view":{"id":"logflow","title":"logflow-*","name":"LogFlow logs","timeFieldName":"@timestamp"}}'
+
+  # 같은 consumer group 으로 여러 대 → Kafka 파티션(6개)을 나눠 소비. 한 대가 죽으면 리밸런싱으로 나머지가 이어받음
+  logstash:
+    image: docker.elastic.co/logstash/logstash:${STACK_VERSION:-8.10.0}
+    restart: unless-stopped
+    deploy:
+      replicas: ${LOGSTASH_REPLICAS:-2}
+    depends_on:
+      setup: { condition: service_completed_successfully }  # 계정·템플릿·ILM 등록 이후
+    environment:
+      LS_JAVA_OPTS: -Xms1g -Xmx1g
+      XPACK_MONITORING_ENABLED: "false"
+      # Kafka 오프셋 커밋 후 ES 적재 전에 죽어도 유실되지 않도록 디스크 큐 사용
+      QUEUE_TYPE: persisted
+      QUEUE_MAX_BYTES: 4gb
+      KAFKA_BOOTSTRAP: ${KAFKA1_EXTERNAL_HOST}:9093,${KAFKA2_EXTERNAL_HOST}:9094,${KAFKA3_EXTERNAL_HOST}:9095
+      KAFKA_LOGSTASH_PASSWORD: ${KAFKA_LOGSTASH_PASSWORD:?KAFKA_LOGSTASH_PASSWORD 필요}
+      KAFKA_TRUSTSTORE_PASSWORD: ${KAFKA_TRUSTSTORE_PASSWORD:?KAFKA_TRUSTSTORE_PASSWORD 필요}
+      LOGSTASH_ES_PASSWORD: ${LOGSTASH_ES_PASSWORD}
+    volumes:
+      - ./logstash/pipeline:/usr/share/logstash/pipeline:ro
+      - certs:/usr/share/logstash/config/certs:ro
+      - ../secrets/kafka/truststore.p12:/usr/share/logstash/config/kafka/truststore.p12:ro
+      # 인스턴스별 persistent queue 저장소 (replicas 마다 별도 익명 볼륨)
+      - /usr/share/logstash/data
+
+volumes:
+  certs:
+  es01data:
+  es02data:
+  es03data:
+  kibanadata:

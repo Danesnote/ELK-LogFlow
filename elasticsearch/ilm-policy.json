@@ -1,0 +1,29 @@
+{
+  "policy": {
+    "phases": {
+      "hot": {
+        "min_age": "0ms",
+        "actions": {
+          "set_priority": { "priority": 100 }
+        }
+      },
+      "warm": {
+        "min_age": "7d",
+        "actions": {
+          "set_priority": { "priority": 50 },
+          "forcemerge": { "max_num_segments": 1 },
+          "readonly": {}
+        }
+      },
+      "delete": {
+        "min_age": "30d",
+        "actions": {
+          "delete": {}
+        }
+      }
+    },
+    "_meta": {
+      "description": "logflow-YYYY.MM.dd 일별 인덱스: 생성 7일 후 읽기 전용으로 병합, 30일 후 삭제"
+    }
+  }
+}

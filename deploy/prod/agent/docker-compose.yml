@@ -1,0 +1,37 @@
+# 앱 서버마다 배포하는 구성: Spring Boot 앱 + Filebeat 에이전트
+# Kafka·ELK 는 별도 인프라(deploy/prod/kafka, deploy/prod/elk)에 있고, 여기서는 Kafka 로만 내보낸다.
+#
+# 실행: docker compose --env-file deploy/prod/.env -f deploy/prod/agent/docker-compose.yml up -d
+# 필요 파일: deploy/prod/secrets/kafka/ca.crt (gen-secrets.sh 결과물 중 이것만 앱 서버에 배포)
+services:
+  app:
+    image: ${APP_IMAGE:?APP_IMAGE 필요}
+    restart: unless-stopped
+    ports:
+      - "${BIND_IP:?BIND_IP 필요}:8080:8080"  # 외부 노출은 앞단 LB/리버스 프록시가 담당
+    environment:
+      LOGGING_FILE_NAME: /logs/app.log
+      JAVA_TOOL_OPTIONS: -XX:MaxRAMPercentage=75
+    volumes:
+      - applogs:/logs
+
+  filebeat:
+    image: docker.elastic.co/beats/filebeat:${STACK_VERSION:-8.10.0}
+    restart: unless-stopped
+    user: root
+    command: ["filebeat", "-e", "--strict.perms=false"]
+    environment:
+      AGENT_NAME: ${AGENT_NAME:?AGENT_NAME 필요}
+      KAFKA1_EXTERNAL_HOST: ${KAFKA1_EXTERNAL_HOST}
+      KAFKA2_EXTERNAL_HOST: ${KAFKA2_EXTERNAL_HOST}
+      KAFKA3_EXTERNAL_HOST: ${KAFKA3_EXTERNAL_HOST}
+      KAFKA_FILEBEAT_PASSWORD: ${KAFKA_FILEBEAT_PASSWORD:?KAFKA_FILEBEAT_PASSWORD 필요}
+    volumes:
+      - ./filebeat.yml:/usr/share/filebeat/filebeat.yml:ro
+      - ../secrets/kafka/ca.crt:/usr/share/filebeat/certs/kafka-ca.crt:ro
+      - applogs:/logs:ro
+      - filebeatdata:/usr/share/filebeat/data  # registry 보존 → 재시작 시 중복·누락 없음
+
+volumes:
+  applogs:
+  filebeatdata:

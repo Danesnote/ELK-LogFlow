@@ -1,0 +1,11 @@
+# elasticsearch-certutil 로 발급할 노드별 인증서 목록 (SAN 에 들어갈 이름)
+# 실제 서버 호스트명/IP 를 dns·ip 에 추가할 것
+instances:
+  - name: es01
+    dns: [es01, es01.logflow.internal, localhost]
+  - name: es02
+    dns: [es02, es02.logflow.internal, localhost]
+  - name: es03
+    dns: [es03, es03.logflow.internal, localhost]
+  - name: kibana
+    dns: [kibana, kibana.logflow.internal, localhost]

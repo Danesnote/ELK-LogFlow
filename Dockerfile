@@ -8,13 +8,13 @@ COPY gradle gradle
 RUN chmod +x gradlew && ./gradlew --no-daemon dependencies > /dev/null
 
 COPY src src
-# bootWar 는 실행 가능한 war 를, war 는 *-plain.war 를 만듦 → 실행 가능한 쪽만 사용
-RUN ./gradlew --no-daemon bootWar -x test \
-    && cp "$(ls build/libs/*.war | grep -v plain)" app.war
+# plain jar 는 비활성화되어 있어 build/libs 에는 실행 가능한 jar 하나만 생김
+RUN ./gradlew --no-daemon bootJar -x test \
+    && cp build/libs/*.jar app.jar
 
 # ---- run ----
 FROM eclipse-temurin:17-jre
 WORKDIR /app
-COPY --from=build /workspace/app.war app.war
+COPY --from=build /workspace/app.jar app.jar
 EXPOSE 8080
-ENTRYPOINT ["java", "-jar", "/app/app.war"]
+ENTRYPOINT ["java", "-jar", "/app/app.jar"]

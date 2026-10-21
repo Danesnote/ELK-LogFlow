@@ -1,0 +1,182 @@
+# 쿠버네티스 배포 시: 앱 Pod 마다 Filebeat 를 붙이지 않고, 노드마다 하나씩 DaemonSet 으로 띄운다.
+# 앱은 SPRING_PROFILES_ACTIVE=k8s 로 JSON 을 stdout 에 쓰고(logback-spring.xml), 컨테이너 런타임이 남긴
+# /var/log/containers/*.log 를 Filebeat 가 읽어 Kafka 로 보낸다.
+#
+# 사전 준비 (gen-secrets.sh 결과물 사용):
+#   kubectl -n logging create secret generic filebeat-kafka \
+#     --from-literal=password="$KAFKA_FILEBEAT_PASSWORD" \
+#     --from-file=ca.crt=deploy/prod/secrets/kafka/ca.crt
+#   kubectl -n logging create configmap filebeat-kafka-hosts \
+#     --from-literal=KAFKA1_EXTERNAL_HOST=... --from-literal=KAFKA2_EXTERNAL_HOST=... --from-literal=KAFKA3_EXTERNAL_HOST=...
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: logging
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: filebeat
+  namespace: logging
+---
+# add_kubernetes_metadata 가 Pod 이름·라벨·네임스페이스를 붙이기 위한 읽기 권한
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: filebeat
+rules:
+  - apiGroups: [""]
+    resources: ["namespaces", "pods", "nodes"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["apps"]
+    resources: ["replicasets"]
+    verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: filebeat
+subjects:
+  - kind: ServiceAccount
+    name: filebeat
+    namespace: logging
+roleRef:
+  kind: ClusterRole
+  name: filebeat
+  apiGroup: rbac.authorization.k8s.io
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: filebeat-config
+  namespace: logging
+data:
+  filebeat.yml: |
+    filebeat.inputs:
+      - type: filestream
+        id: logflow-k8s
+        # 파일명 규칙: <pod>_<namespace>_<container>-<id>.log → logflow 네임스페이스만 수집
+        paths:
+          - /var/log/containers/*_logflow_*.log
+        prospector.scanner.symlinks: true
+        parsers:
+          - container: ~          # 런타임(containerd/docker) 로그 포맷을 벗겨 원래 stdout 한 줄을 꺼냄
+          - ndjson:               # 그 한 줄이 LogstashEncoder JSON
+              target: ""
+              overwrite_keys: true
+              add_error_key: true
+              message_key: message
+        processors:
+          - add_kubernetes_metadata:
+              host: ${NODE_NAME}
+              matchers:
+                - logs_path:
+                    logs_path: "/var/log/containers/"
+
+    processors:
+      - add_fields:
+          target: ""
+          fields:
+            env: prod
+      - drop_fields:
+          fields: ["agent.ephemeral_id", "agent.id", "ecs.version"]
+          ignore_missing: true
+
+    output.kafka:
+      hosts:
+        - "${KAFKA1_EXTERNAL_HOST}:9093"
+        - "${KAFKA2_EXTERNAL_HOST}:9094"
+        - "${KAFKA3_EXTERNAL_HOST}:9095"
+      topic: "logs-topic"
+      required_acks: -1
+      compression: gzip
+      partition.round_robin:
+        reachable_only: true
+      username: "filebeat"
+      password: "${KAFKA_FILEBEAT_PASSWORD}"
+      sasl.mechanism: PLAIN
+      ssl.enabled: true
+      ssl.certificate_authorities: ["/usr/share/filebeat/certs/ca.crt"]
+      ssl.verification_mode: full
+---
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: filebeat
+  namespace: logging
+  labels:
+    app: filebeat
+spec:
+  selector:
+    matchLabels:
+      app: filebeat
+  template:
+    metadata:
+      labels:
+        app: filebeat
+    spec:
+      serviceAccountName: filebeat
+      terminationGracePeriodSeconds: 30
+      tolerations:
+        - operator: Exists  # 모든 노드(컨트롤 플레인 포함)에 배치
+      containers:
+        - name: filebeat
+          image: docker.elastic.co/beats/filebeat:8.10.0
+          args: ["-c", "/etc/filebeat.yml", "-e"]
+          env:
+            - name: NODE_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
+            - name: KAFKA_FILEBEAT_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: filebeat-kafka
+                  key: password
+          envFrom:
+            - configMapRef:
+                name: filebeat-kafka-hosts
+          securityContext:
+            runAsUser: 0  # 노드의 /var/log 읽기
+          resources:
+            requests: { cpu: 100m, memory: 128Mi }
+            limits: { memory: 300Mi }
+          volumeMounts:
+            - name: config
+              mountPath: /etc/filebeat.yml
+              subPath: filebeat.yml
+              readOnly: true
+            - name: kafka-ca
+              mountPath: /usr/share/filebeat/certs
+              readOnly: true
+            - name: data
+              mountPath: /usr/share/filebeat/data
+            - name: varlogcontainers
+              mountPath: /var/log/containers
+              readOnly: true
+            - name: varlogpods
+              mountPath: /var/log/pods
+              readOnly: true
+      volumes:
+        - name: config
+          configMap:
+            name: filebeat-config
+            defaultMode: 0640
+        - name: kafka-ca
+          secret:
+            secretName: filebeat-kafka
+            items:
+              - key: ca.crt
+                path: ca.crt
+        # registry 를 노드에 보존 → Pod 가 재시작돼도 이어서 수집
+        - name: data
+          hostPath:
+            path: /var/lib/filebeat-data
+            type: DirectoryOrCreate
+        - name: varlogcontainers
+          hostPath:
+            path: /var/log/containers
+        - name: varlogpods
+          hostPath:
+            path: /var/log/pods

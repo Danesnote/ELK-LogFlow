@@ -1,0 +1,86 @@
+{
+  "index_patterns": [
+    "logflow-*"
+  ],
+  "priority": 200,
+  "template": {
+    "settings": {
+      "number_of_shards": 3,
+      "number_of_replicas": 1,
+      "index.lifecycle.name": "logflow-policy",
+      "index.refresh_interval": "5s"
+    },
+    "mappings": {
+      "dynamic_templates": [
+        {
+          "strings_as_keyword": {
+            "match_mapping_type": "string",
+            "mapping": {
+              "type": "keyword",
+              "ignore_above": 1024
+            }
+          }
+        }
+      ],
+      "properties": {
+        "@timestamp": {
+          "type": "date"
+        },
+        "message": {
+          "type": "text",
+          "fields": {
+            "keyword": {
+              "type": "keyword",
+              "ignore_above": 512
+            }
+          }
+        },
+        "level": {
+          "type": "keyword"
+        },
+        "level_value": {
+          "type": "integer"
+        },
+        "logger_name": {
+          "type": "keyword"
+        },
+        "thread_name": {
+          "type": "keyword"
+        },
+        "stack_trace": {
+          "type": "text"
+        },
+        "traceId": {
+          "type": "keyword"
+        },
+        "app": {
+          "type": "keyword"
+        },
+        "host": {
+          "properties": {
+            "name": {
+              "type": "keyword"
+            }
+          }
+        },
+        "log": {
+          "properties": {
+            "file": {
+              "properties": {
+                "path": {
+                  "type": "keyword"
+                }
+              }
+            },
+            "offset": {
+              "type": "long"
+            }
+          }
+        }
+      }
+    }
+  },
+  "_meta": {
+    "description": "운영: 노드 3대 기준 샤드 3, 복제본 1. 매핑은 루트 elasticsearch/index-template.json 과 동일하게 유지"
+  }
+}

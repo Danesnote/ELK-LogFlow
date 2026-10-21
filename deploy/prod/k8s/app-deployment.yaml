@@ -1,0 +1,50 @@
+# 쿠버네티스 앱 배포 예시: k8s 프로필로 JSON 로그를 stdout 에 출력 → filebeat-daemonset.yaml 이 수집
+# Filebeat 는 logflow 네임스페이스의 컨테이너 로그만 수집하도록 되어 있다.
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: logflow
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: logflow
+  namespace: logflow
+  labels:
+    app: logflow
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: logflow
+  template:
+    metadata:
+      labels:
+        app: logflow
+    spec:
+      containers:
+        - name: logflow
+          image: registry.logflow.internal/logflow:0.0.1
+          ports:
+            - containerPort: 8080
+          env:
+            - name: SPRING_PROFILES_ACTIVE
+              value: k8s  # 파일 대신 stdout 으로 JSON 로그
+            - name: JAVA_TOOL_OPTIONS
+              value: -XX:MaxRAMPercentage=75
+          resources:
+            requests: { cpu: 250m, memory: 512Mi }
+            limits: { memory: 1Gi }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: logflow
+  namespace: logflow
+spec:
+  selector:
+    app: logflow
+  ports:
+    - port: 80
+      targetPort: 8080

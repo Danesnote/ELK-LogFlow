@@ -1,0 +1,63 @@
+# 운영 Filebeat: 앱 서버의 JSON 로그 → Kafka(SASL_SSL)
+# ${...} 는 컨테이너 환경변수 (deploy/prod/agent/docker-compose.yml)
+
+# Kibana 에서 서버를 구분하는 이름 → 이벤트의 host.name, agent.name
+name: ${AGENT_NAME}
+
+filebeat.inputs:
+  - type: filestream
+    id: logflow-app
+    paths:
+      - /logs/*.log  # 롤링된 *.gz 는 제외됨
+    parsers:
+      - ndjson:
+          target: ""
+          overwrite_keys: true
+          add_error_key: true
+          message_key: message
+    # 오래 갱신되지 않은 파일 핸들은 닫아서 롤링 후 디스크가 해제되게
+    close.on_state_change.inactive: 5m
+    clean_removed: true
+
+processors:
+  - add_fields:
+      target: ""
+      fields:
+        env: prod
+  - drop_fields:
+      fields: ["agent.ephemeral_id", "agent.id", "ecs.version"]
+      ignore_missing: true
+
+output.kafka:
+  hosts:
+    - "${KAFKA1_EXTERNAL_HOST}:9093"
+    - "${KAFKA2_EXTERNAL_HOST}:9094"
+    - "${KAFKA3_EXTERNAL_HOST}:9095"
+  topic: "logs-topic"
+  # 모든 ISR(min.insync.replicas=2) 기록 확인 후 완료 → 브로커 1대 장애에도 유실 없음
+  required_acks: -1
+  compression: gzip
+  max_message_bytes: 1000000
+  partition.round_robin:
+    reachable_only: true
+
+  # 인증: filebeat 계정 (logs-topic 쓰기 권한만 있음)
+  username: "filebeat"
+  password: "${KAFKA_FILEBEAT_PASSWORD}"
+  sasl.mechanism: PLAIN
+
+  # 전송 암호화: 브로커 인증서를 Kafka CA 로 검증
+  ssl.enabled: true
+  ssl.certificate_authorities: ["/usr/share/filebeat/certs/kafka-ca.crt"]
+  ssl.verification_mode: full
+
+# Kafka 가 잠시 응답하지 않아도 이벤트를 메모리에 모아 두고, 그 이상은 파일 읽기를 멈춰 registry 위치에서 재개
+queue.mem:
+  events: 8192
+  flush.min_events: 1024
+  flush.timeout: 1s
+
+# 에이전트 자체 상태 확인용 (호스트 내부에서만)
+http.enabled: true
+http.host: 127.0.0.1
+http.port: 5066

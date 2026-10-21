@@ -9,7 +9,7 @@
     <!-- logging.file.name 값이 LOG_FILE 로 들어옴 (없으면 임시 디렉터리) -->
     <property name="JSON_LOG_FILE" value="${LOG_FILE:-${LOG_PATH:-${LOG_TEMP:-${java.io.tmpdir:-/tmp}}}/app.log}"/>
 
-    <!-- Filebeat 가 수집할 JSON(ndjson) 파일 로그: 한 줄에 이벤트 하나 -->
+    <!-- Filebeat 가 수집할 JSON(ndjson) 파일 로그: 한 줄에 이벤트 하나. MDC(traceId 등)도 필드로 포함됨 -->
     <appender name="JSON_FILE" class="ch.qos.logback.core.rolling.RollingFileAppender">
         <file>${JSON_LOG_FILE}</file>
         <rollingPolicy class="ch.qos.logback.core.rolling.SizeAndTimeBasedRollingPolicy">
@@ -24,8 +24,23 @@
         </encoder>
     </appender>
 
-    <root level="INFO">
-        <appender-ref ref="CONSOLE"/>
-        <appender-ref ref="JSON_FILE"/>
-    </root>
+    <!-- 쿠버네티스: 파일 대신 stdout 으로 JSON 출력 → 노드의 Filebeat DaemonSet 이 컨테이너 로그로 수집 -->
+    <springProfile name="k8s">
+        <appender name="JSON_CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
+            <encoder class="net.logstash.logback.encoder.LogstashEncoder">
+                <customFields>{"app":"${APP_NAME}"}</customFields>
+            </encoder>
+        </appender>
+
+        <root level="INFO">
+            <appender-ref ref="JSON_CONSOLE"/>
+        </root>
+    </springProfile>
+
+    <springProfile name="!k8s">
+        <root level="INFO">
+            <appender-ref ref="CONSOLE"/>
+            <appender-ref ref="JSON_FILE"/>
+        </root>
+    </springProfile>
 </configuration>

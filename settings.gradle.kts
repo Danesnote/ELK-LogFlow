@@ -1,1 +1,1 @@
-rootProject.name = "rsupport"
+rootProject.name = "logflow"
